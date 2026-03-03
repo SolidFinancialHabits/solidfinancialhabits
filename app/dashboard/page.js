@@ -60,7 +60,8 @@ export default function Dashboard() {
     )
   }
 
-  const firstName = profile?.full_name?.split(' ')[0] || 'there'
+const firstName = profile?.full_name?.split(' ')[0] || user?.user_metadata?.full_name?.split(' ')[0] || 'there'
+
 
   return (
     <div style={{
