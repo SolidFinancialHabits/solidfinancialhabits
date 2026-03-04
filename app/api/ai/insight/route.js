@@ -15,7 +15,8 @@ export async function POST(request) {
       foundationTotal,
       lifestyleTotal,
       topCategories,
-      monthsTracked
+      monthsTracked,
+      previousSnapshot
     } = await request.json()
 
     const gap = totalIncome - totalExpenses
@@ -44,34 +45,51 @@ export async function POST(request) {
     }
 
     const topCategoriesText = topCategories && topCategories.length > 0
-      ? `Their top spending categories from their connected bank are: ${topCategories.slice(0, 3).map(c => `${c.category} ($${c.amount})`).join(', ')}.`
-      : 'They have not yet connected their bank account.'
+      ? `Top spending categories: ${topCategories.slice(0, 3).map(c => `${c.category} ($${c.amount})`).join(', ')}.`
+      : 'No bank connected yet.'
 
-    const prompt = `You are a financial coach writing a personalized insight for someone who just completed their financial onboarding. Your tone is warm, honest, and direct — never preachy or judgmental. You speak like a trusted friend who happens to know about money, not a financial advisor covering their liability.
+    // Build continuity context if returning user
+    let continuityContext = ''
+    if (previousSnapshot && monthsTracked > 1) {
+      const prevGap = previousSnapshot.total_income - previousSnapshot.total_expenses
+      const gapChange = gap - prevGap
+      const spendingChange = totalExpenses - previousSnapshot.total_expenses
+      continuityContext = `
+Last month: income $${previousSnapshot.total_income}, expenses $${previousSnapshot.total_expenses}, ${prevGap >= 0 ? 'surplus' : 'shortfall'} $${Math.abs(prevGap)}.
+This month vs last month: spending ${spendingChange >= 0 ? 'up' : 'down'} $${Math.abs(spendingChange)}, gap ${gapChange >= 0 ? 'improved' : 'worsened'} by $${Math.abs(gapChange)}.`
+    }
 
-Here is what you know about this person:
+    const isReturning = monthsTracked > 1 && previousSnapshot
 
+    const prompt = `You are a financial coach writing a short, personalized insight for someone using a budgeting app. Be direct and honest. Do not be preachy. Do not use hollow encouragement. Speak plainly like a trusted friend — not a financial advisor.
+
+About this person:
 - How they feel about money: ${feelingMap[feeling] || 'unknown'}
-- Their biggest money worry: ${worryMap[biggestWorry] || 'unknown'}
-- Their budgeting history: ${triedMap[triedBefore] || 'unknown'}
-- Monthly income: $${totalIncome}
-- Monthly expenses: $${totalExpenses}
-- Monthly ${gap >= 0 ? 'surplus' : 'shortfall'}: $${Math.abs(gap)}
+- Biggest money worry: ${worryMap[biggestWorry] || 'unknown'}
+- Budgeting history: ${triedMap[triedBefore] || 'unknown'}
+- This month: income $${totalIncome}, expenses $${totalExpenses}, ${gap >= 0 ? 'surplus' : 'shortfall'} $${Math.abs(gap)}
 - Spending rate: ${pct}% of income
-- Foundation spending (non-negotiables): $${foundationTotal} (${totalIncome > 0 ? Math.round((foundationTotal / totalIncome) * 100) : 0}% of income)
-- Lifestyle spending (flexible): $${lifestyleTotal} (${lifestylePct}% of income)
+- Foundation spending: $${foundationTotal} (${totalIncome > 0 ? Math.round((foundationTotal / totalIncome) * 100) : 0}% of income)
+- Lifestyle spending: $${lifestyleTotal} (${lifestylePct}% of income)
 - ${topCategoriesText}
-- Months they have been tracking: ${monthsTracked || 1}
+- Months tracked: ${monthsTracked || 1}
+${continuityContext}
 
-Write ONE paragraph of 4-6 sentences. Do not use bullet points or headers. 
+${isReturning
+  ? `This person is returning for month ${monthsTracked}. Write a "since last time" paragraph that:
+1. Acknowledges what changed between last month and this month — specifically, with numbers
+2. Names one thing that stands out — good or concerning — without moralizing
+3. Asks one question about the behavior behind the number
+4. Is under 100 words`
+  : `This is their first time. Write a paragraph that:
+1. Acknowledges where they are emotionally without being condescending
+2. Names one specific thing that stands out in their numbers — honest, not sugar-coated
+3. Asks one question about the behavior behind the number — not what to do about it
+4. Ends with something true and grounding
+5. Is under 100 words`
+}
 
-Your paragraph should:
-1. Acknowledge where they are emotionally without being condescending
-2. Name one specific thing that stands out in their numbers — something honest, not sugar-coated
-3. Ask them one question that makes them think about the behavior behind the number — not tell them what to do
-4. End with something true and grounding, not motivational fluff
-
-Do not say things like "great job", "you should be proud", or "you're doing amazing". Do not recommend specific financial products. Do not use the word "journey". Keep it under 120 words.`
+Do not say: "great job", "you should be proud", "you're doing amazing", "I totally get", "the good news is", "journey", or any variation of these. Do not use bullet points. Write one paragraph only.`
 
     const message = await client.messages.create({
       model: 'claude-sonnet-4-20250514',

@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [loadingInsights, setLoadingInsights] = useState(false)
   const [loading, setLoading] = useState(true)
   const [expandedCategory, setExpandedCategory] = useState(null)
+  const [aiInsight, setAiInsight] = useState(null)
 
   useEffect(() => {
     const getData = async () => {
@@ -32,6 +33,30 @@ export default function Dashboard() {
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: false })
       setSnapshots(snapshotData || [])
+
+      // Load AI insight
+      if (snapshotData && snapshotData.length > 0) {
+        const latest = snapshotData[0]
+        const previous = snapshotData[1] || null
+        const insightRes = await fetch('/api/ai/insight', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            feeling: profileData?.feeling,
+            biggestWorry: profileData?.biggest_worry,
+            triedBefore: profileData?.tried_before,
+            totalIncome: latest.total_income,
+            totalExpenses: latest.total_expenses,
+            foundationTotal: 0,
+            lifestyleTotal: 0,
+            topCategories: [],
+            monthsTracked: snapshotData.length,
+            previousSnapshot: previous
+          })
+        })
+        const insightData = await insightRes.json()
+        if (insightData.insight) setAiInsight(insightData.insight)
+      }
 
       const { data: connectionData } = await supabase
         .from('plaid_connections').select('id, institution_name')
@@ -149,7 +174,7 @@ export default function Dashboard() {
       <main style={{ maxWidth: '1100px', margin: '0 auto', padding: '3rem 1.5rem' }}>
 
         {/* Welcome */}
-        <div style={{ marginBottom: '2.5rem' }}>
+        <div style={{ marginBottom: '1.5rem' }}>
           <h1 style={{
             fontSize: '2.5rem', fontWeight: '800', color: '#1C1814',
             lineHeight: '1.1', marginBottom: '0.5rem', fontFamily: 'Georgia, serif'
@@ -163,6 +188,30 @@ export default function Dashboard() {
             }
           </p>
         </div>
+
+        {/* AI Insight */}
+        {aiInsight && (
+          <div style={{
+            background: '#1C1814', borderRadius: '20px',
+            padding: '1.75rem 2rem', marginBottom: '2rem'
+          }}>
+            <div style={{
+              fontSize: '0.72rem', fontWeight: '700',
+              letterSpacing: '0.1em', textTransform: 'uppercase',
+              color: '#5FAD65', marginBottom: '0.75rem',
+              fontFamily: 'system-ui, sans-serif'
+            }}>
+              {snapshots.length > 1 ? '📅 Since last time' : '👋 Your picture'}
+            </div>
+            <p style={{
+              color: '#FAFAF9', fontSize: '1rem',
+              lineHeight: '1.75', fontFamily: 'Georgia, serif',
+              fontStyle: 'italic', margin: 0
+            }}>
+              "{aiInsight}"
+            </p>
+          </div>
+        )}
 
         {/* No snapshot yet */}
         {!latest && (
@@ -197,7 +246,6 @@ export default function Dashboard() {
         {/* Has snapshot */}
         {latest && (
           <>
-            {/* Score cards */}
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -228,7 +276,6 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* Spending rate */}
             <div style={{
               background: 'white', border: '1px solid #E8E5DF',
               borderRadius: '20px', padding: '1.75rem',
@@ -245,10 +292,7 @@ export default function Dashboard() {
                   color: pct > 90 ? '#E05C45' : pct > 75 ? '#E8A825' : '#3A8A40'
                 }}>{pct}%</span>
               </div>
-              <div style={{
-                height: '10px', background: '#E8E5DF',
-                borderRadius: '100px', overflow: 'hidden'
-              }}>
+              <div style={{ height: '10px', background: '#E8E5DF', borderRadius: '100px', overflow: 'hidden' }}>
                 <div style={{
                   height: '100%', borderRadius: '100px',
                   width: Math.min(pct, 100) + '%',
@@ -352,7 +396,6 @@ export default function Dashboard() {
               </div>
             ) : insights ? (
               <>
-                {/* Category cards with drill-down */}
                 <div style={{ marginBottom: '1.5rem' }}>
                   {insights.topCategories.slice(0, 3).map((cat, i) => {
                     const maxAmount = insights.topCategories[0].amount
@@ -362,7 +405,6 @@ export default function Dashboard() {
 
                     return (
                       <div key={i} style={{ marginBottom: '0.75rem' }}>
-                        {/* Category row — clickable */}
                         <div
                           onClick={() => setExpandedCategory(isExpanded ? null : i)}
                           style={{
@@ -370,8 +412,7 @@ export default function Dashboard() {
                             background: isTop ? '#FDF3DC' : '#FAFAF9',
                             border: `1px solid ${isExpanded ? '#1C1814' : isTop ? '#F3D98A' : '#E8E5DF'}`,
                             borderRadius: isExpanded ? '16px 16px 0 0' : '16px',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s'
+                            cursor: 'pointer', transition: 'all 0.2s'
                           }}
                         >
                           <div style={{
@@ -403,10 +444,7 @@ export default function Dashboard() {
                               }}>▼</span>
                             </div>
                           </div>
-                          <div style={{
-                            height: '6px', background: '#E8E5DF',
-                            borderRadius: '100px', overflow: 'hidden'
-                          }}>
+                          <div style={{ height: '6px', background: '#E8E5DF', borderRadius: '100px', overflow: 'hidden' }}>
                             <div style={{
                               height: '100%', borderRadius: '100px',
                               width: barWidth + '%',
@@ -414,65 +452,40 @@ export default function Dashboard() {
                             }}></div>
                           </div>
                           {!isExpanded && (
-                            <div style={{
-                              fontSize: '0.75rem', color: '#8A8278',
-                              marginTop: '0.5rem'
-                            }}>
+                            <div style={{ fontSize: '0.75rem', color: '#8A8278', marginTop: '0.5rem' }}>
                               Tap to see what's in here
                             </div>
                           )}
                         </div>
 
-                        {/* Expanded transactions */}
                         {isExpanded && cat.transactions && (
                           <div style={{
-                            border: '1px solid #1C1814',
-                            borderTop: 'none',
-                            borderRadius: '0 0 16px 16px',
-                            overflow: 'hidden',
-                            background: 'white'
+                            border: '1px solid #1C1814', borderTop: 'none',
+                            borderRadius: '0 0 16px 16px', overflow: 'hidden', background: 'white'
                           }}>
                             {cat.transactions.map((txn, j) => (
                               <div key={j} style={{
                                 display: 'flex', justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: '0.875rem 1.25rem',
-                                borderBottom: j < cat.transactions.length - 1
-                                  ? '1px solid #E8E5DF' : 'none',
-                                transition: 'background 0.15s'
+                                alignItems: 'center', padding: '0.875rem 1.25rem',
+                                borderBottom: j < cat.transactions.length - 1 ? '1px solid #E8E5DF' : 'none'
                               }}>
                                 <div>
-                                  <div style={{
-                                    fontSize: '0.875rem', fontWeight: '600',
-                                    color: '#1C1814', marginBottom: '0.15rem'
-                                  }}>
+                                  <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#1C1814', marginBottom: '0.15rem' }}>
                                     {txn.name}
                                   </div>
                                   <div style={{ fontSize: '0.75rem', color: '#8A8278' }}>
-                                    {new Date(txn.date).toLocaleDateString('en-US', {
-                                      month: 'short', day: 'numeric'
-                                    })}
+                                    {new Date(txn.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                   </div>
                                 </div>
-                                <span style={{
-                                  fontFamily: 'Georgia, serif',
-                                  fontSize: '0.95rem', color: '#1C1814', fontWeight: '400'
-                                }}>
+                                <span style={{ fontFamily: 'Georgia, serif', fontSize: '0.95rem', color: '#1C1814' }}>
                                   {fmtUSDCents(txn.amount)}
                                 </span>
                               </div>
                             ))}
-                            {/* Question prompt instead of advice */}
                             <div style={{
-                              padding: '1rem 1.25rem',
-                              background: '#F5F4F0',
-                              borderTop: '1px solid #E8E5DF'
+                              padding: '1rem 1.25rem', background: '#F5F4F0', borderTop: '1px solid #E8E5DF'
                             }}>
-                              <p style={{
-                                fontSize: '0.82rem', color: '#4A453E',
-                                lineHeight: '1.6', margin: 0,
-                                fontStyle: 'italic'
-                              }}>
+                              <p style={{ fontSize: '0.82rem', color: '#4A453E', lineHeight: '1.6', margin: 0, fontStyle: 'italic' }}>
                                 💭 Does anything here surprise you?
                               </p>
                             </div>
@@ -483,7 +496,6 @@ export default function Dashboard() {
                   })}
                 </div>
 
-                {/* Total */}
                 <div style={{
                   background: '#F0F7F1', border: '1px solid #D6EDD8',
                   borderRadius: '12px', padding: '1rem',
@@ -498,9 +510,7 @@ export default function Dashboard() {
                       {insights.transactionCount} transactions in the last 30 days
                     </div>
                   </div>
-                  <div style={{
-                    fontFamily: 'Georgia, serif', fontSize: '1.5rem', color: '#3A8A40'
-                  }}>
+                  <div style={{ fontFamily: 'Georgia, serif', fontSize: '1.5rem', color: '#3A8A40' }}>
                     {fmtUSD(insights.totalSpending)}
                   </div>
                 </div>
@@ -545,12 +555,9 @@ export default function Dashboard() {
           <div style={{
             background: 'white', border: '1px solid #E8E5DF',
             borderRadius: '20px', padding: '1.75rem',
-            boxShadow: '0 4px 16px rgba(28,24,20,0.06)',
-            marginBottom: '1.5rem'
+            boxShadow: '0 4px 16px rgba(28,24,20,0.06)', marginBottom: '1.5rem'
           }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: '700', marginBottom: '1.25rem' }}>
-              Monthly History
-            </h3>
+            <h3 style={{ fontSize: '1rem', fontWeight: '700', marginBottom: '1.25rem' }}>Monthly History</h3>
             {snapshots.map((snap, i) => {
               const snapGap = snap.total_income - snap.total_expenses
               return (
@@ -559,16 +566,11 @@ export default function Dashboard() {
                   alignItems: 'center', padding: '0.875rem 0',
                   borderBottom: i < snapshots.length - 1 ? '1px solid #E8E5DF' : 'none'
                 }}>
-                  <span style={{ fontSize: '0.9rem', fontWeight: '600' }}>
-                    {snap.month} {snap.year}
-                  </span>
+                  <span style={{ fontSize: '0.9rem', fontWeight: '600' }}>{snap.month} {snap.year}</span>
                   <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
                     <span style={{ fontSize: '0.84rem', color: '#8A8278' }}>{fmtUSD(snap.total_income)} in</span>
                     <span style={{ fontSize: '0.84rem', color: '#8A8278' }}>{fmtUSD(snap.total_expenses)} out</span>
-                    <span style={{
-                      fontSize: '0.9rem', fontWeight: '700',
-                      color: snapGap >= 0 ? '#3A8A40' : '#E05C45'
-                    }}>
+                    <span style={{ fontSize: '0.9rem', fontWeight: '700', color: snapGap >= 0 ? '#3A8A40' : '#E05C45' }}>
                       {snapGap >= 0 ? '+' : '-'}{fmtUSD(snapGap)}
                     </span>
                   </div>
@@ -580,8 +582,7 @@ export default function Dashboard() {
 
         {/* Encouragement */}
         <div style={{
-          background: '#1C1814', borderRadius: '20px',
-          padding: '2rem 2.5rem',
+          background: '#1C1814', borderRadius: '20px', padding: '2rem 2.5rem',
           display: 'flex', alignItems: 'center',
           justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem'
         }}>
@@ -595,8 +596,7 @@ export default function Dashboard() {
           </div>
           <div style={{
             background: '#5FAD65', color: 'white', borderRadius: '100px',
-            padding: '0.5rem 1.25rem', fontSize: '0.825rem',
-            fontWeight: '700', whiteSpace: 'nowrap'
+            padding: '0.5rem 1.25rem', fontSize: '0.825rem', fontWeight: '700', whiteSpace: 'nowrap'
           }}>
             {snapshots.length} {snapshots.length === 1 ? 'month' : 'months'} tracked ✓
           </div>
