@@ -13,11 +13,27 @@ const config = new Configuration({
 
 const plaidClient = new PlaidApi(config)
 
+// Categories that are not real spending — filter these out
+const EXCLUDED_CATEGORIES = [
+  'TRANSFER_OUT',
+  'TRANSFER_IN',
+  'TRANSFER',
+  'Transfer',
+  'LOAN_PAYMENTS',
+  'BANK_FEES',
+  'OTHER',
+  'Payment',
+  'Credit Card',
+  'INCOME',
+  'Payroll',
+  'Interest Earned',
+  'Deposit',
+]
+
 export async function POST(request) {
   try {
     const { userId } = await request.json()
 
-    // Get user's Plaid connection from Supabase
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -35,7 +51,6 @@ export async function POST(request) {
       return Response.json({ error: 'No bank connected' }, { status: 404 })
     }
 
-    // Get last 30 days of transactions
     const today = new Date()
     const thirtyDaysAgo = new Date()
     thirtyDaysAgo.setDate(today.getDate() - 30)
@@ -48,32 +63,52 @@ export async function POST(request) {
 
     const transactions = response.data.transactions
 
+    // Filter to real spending only
+    const spendingTransactions = transactions.filter(txn => {
+      if (txn.amount <= 0) return false // skip refunds and income
+
+      const primaryCategory = txn.personal_finance_category?.primary || txn.category?.[0] || ''
+
+      // Skip transfers, payments, and non-spending categories
+      if (EXCLUDED_CATEGORIES.some(cat =>
+        primaryCategory.toUpperCase().includes(cat.toUpperCase()) ||
+        cat.toUpperCase().includes(primaryCategory.toUpperCase())
+      )) return false
+
+      return true
+    })
+
     // Group by category and sum amounts
     const categoryTotals = {}
-    transactions.forEach(txn => {
-      if (txn.amount <= 0) return // skip income/refunds
+    spendingTransactions.forEach(txn => {
       const category = txn.personal_finance_category?.primary || txn.category?.[0] || 'Other'
-      if (!categoryTotals[category]) categoryTotals[category] = 0
-      categoryTotals[category] += txn.amount
+      if (!categoryTotals[category]) categoryTotals[category] = { total: 0, transactions: [] }
+      categoryTotals[category].total += txn.amount
+      categoryTotals[category].transactions.push({
+        name: txn.merchant_name || txn.name,
+        amount: Math.round(txn.amount * 100) / 100,
+        date: txn.date
+      })
     })
 
     // Sort by amount and get top categories
     const topCategories = Object.entries(categoryTotals)
-      .sort((a, b) => b[1] - a[1])
+      .sort((a, b) => b[1].total - a[1].total)
       .slice(0, 6)
-      .map(([category, amount]) => ({
+      .map(([category, data]) => ({
         category: formatCategory(category),
-        amount: Math.round(amount)
+        amount: Math.round(data.total),
+        transactions: data.transactions
+          .sort((a, b) => b.amount - a.amount)
+          .slice(0, 5) // top 5 transactions per category
       }))
 
-    const totalSpending = transactions
-      .filter(t => t.amount > 0)
-      .reduce((sum, t) => sum + t.amount, 0)
+    const totalSpending = spendingTransactions.reduce((sum, t) => sum + t.amount, 0)
 
     return Response.json({
       topCategories,
       totalSpending: Math.round(totalSpending),
-      transactionCount: transactions.filter(t => t.amount > 0).length,
+      transactionCount: spendingTransactions.length,
       institutionName: connection.institution_name
     })
 
@@ -96,6 +131,10 @@ function formatCategory(raw) {
     'RENT_AND_UTILITIES': '🏠 Rent & Utilities',
     'GENERAL_MERCHANDISE': '🛒 General Shopping',
     'GROCERIES': '🛒 Groceries',
+    'GOVERNMENT_AND_NON_PROFIT': '🏛️ Government',
+    'HOME_IMPROVEMENT': '🔨 Home Improvement',
+    'PETS': '🐾 Pets',
+    'EDUCATION': '📚 Education',
     'Food and Drink': '🍕 Food & Dining',
     'Shops': '🛍️ Shopping',
     'Travel': '🚗 Transportation',

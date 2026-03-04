@@ -14,6 +14,7 @@ export default function Dashboard() {
   const [insights, setInsights] = useState(null)
   const [loadingInsights, setLoadingInsights] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [expandedCategory, setExpandedCategory] = useState(null)
 
   useEffect(() => {
     const getData = async () => {
@@ -32,20 +33,17 @@ export default function Dashboard() {
         .order('created_at', { ascending: false })
       setSnapshots(snapshotData || [])
 
-      // Check if bank is connected
       const { data: connectionData } = await supabase
         .from('plaid_connections').select('id, institution_name')
         .eq('user_id', session.user.id)
         .limit(1)
       if (connectionData && connectionData.length > 0) {
         setBankConnected(true)
-        // Auto-load insights
         loadInsights(session.user.id)
       }
 
       setLoading(false)
 
-      // Get Plaid link token
       const res = await fetch('/api/plaid/create-link-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -116,6 +114,7 @@ export default function Dashboard() {
   const gap = latest ? latest.total_income - latest.total_expenses : null
   const pct = latest ? Math.round((latest.total_expenses / latest.total_income) * 100) : null
   const fmtUSD = (n) => '$' + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })
+  const fmtUSDCents = (n) => '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   return (
     <div style={{ minHeight: '100vh', background: '#FAFAF9', fontFamily: 'system-ui, sans-serif' }}>
@@ -195,9 +194,10 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Has snapshot — show numbers */}
+        {/* Has snapshot */}
         {latest && (
           <>
+            {/* Score cards */}
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -257,17 +257,17 @@ export default function Dashboard() {
               </div>
               <p style={{ fontSize: '0.84rem', color: '#8A8278', marginTop: '0.75rem', lineHeight: '1.5' }}>
                 {pct <= 75
-                  ? "Great — you're keeping expenses well under income."
+                  ? "You're keeping expenses well under income."
                   : pct <= 90
                   ? "Getting close to the limit. Look for one area to trim."
-                  : "Spending exceeds safe levels. Let's find the gap."
+                  : "Almost everything you earn is going back out. Let's look at where."
                 }
               </p>
             </div>
           </>
         )}
 
-        {/* ── BANK CONNECTION SECTION ── */}
+        {/* Bank connection or insights */}
         {!bankConnected ? (
           <div style={{
             background: 'white', border: '2px dashed #D0CBC0',
@@ -285,13 +285,12 @@ export default function Dashboard() {
               fontSize: '0.9rem', color: '#8A8278', lineHeight: '1.7',
               maxWidth: '420px', margin: '0 auto 1.75rem'
             }}>
-              Connect your bank and we'll show you your top 3 spending categories —
+              Connect your bank and we'll show you your top spending categories —
               no transaction lists, no judgment, just the picture that matters.
             </p>
             <div style={{
               display: 'flex', gap: '0.75rem',
-              justifyContent: 'center', flexWrap: 'wrap',
-              marginBottom: '1.5rem'
+              justifyContent: 'center', flexWrap: 'wrap', marginBottom: '1.5rem'
             }}>
               {['🔒 Bank-level security', '👁️ Read-only access', '🚫 No transaction lists'].map((item, i) => (
                 <div key={i} style={{
@@ -315,7 +314,6 @@ export default function Dashboard() {
             </button>
           </div>
         ) : (
-          /* ── INSIGHTS FROM REAL TRANSACTIONS ── */
           <div style={{
             background: 'white', border: '1px solid #E8E5DF',
             borderRadius: '24px', padding: '2rem',
@@ -324,7 +322,8 @@ export default function Dashboard() {
           }}>
             <div style={{
               display: 'flex', justifyContent: 'space-between',
-              alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.5rem'
+              alignItems: 'center', marginBottom: '1.5rem',
+              flexWrap: 'wrap', gap: '0.5rem'
             }}>
               <div>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '0.25rem' }}>
@@ -353,56 +352,138 @@ export default function Dashboard() {
               </div>
             ) : insights ? (
               <>
-                {/* Top 3 categories — the insight engine */}
+                {/* Category cards with drill-down */}
                 <div style={{ marginBottom: '1.5rem' }}>
                   {insights.topCategories.slice(0, 3).map((cat, i) => {
                     const maxAmount = insights.topCategories[0].amount
                     const barWidth = (cat.amount / maxAmount) * 100
                     const isTop = i === 0
+                    const isExpanded = expandedCategory === i
+
                     return (
-                      <div key={i} style={{
-                        marginBottom: '1rem',
-                        padding: '1.25rem',
-                        background: isTop ? '#FDF3DC' : '#FAFAF9',
-                        border: `1px solid ${isTop ? '#F3D98A' : '#E8E5DF'}`,
-                        borderRadius: '16px'
-                      }}>
-                        <div style={{
-                          display: 'flex', justifyContent: 'space-between',
-                          alignItems: 'center', marginBottom: '0.5rem'
-                        }}>
-                          <span style={{ fontSize: '0.9rem', fontWeight: '600' }}>
-                            {isTop && <span style={{
-                              background: '#E8A825', color: 'white',
-                              borderRadius: '4px', padding: '0.1rem 0.4rem',
-                              fontSize: '0.65rem', fontWeight: '700',
-                              marginRight: '0.5rem', verticalAlign: 'middle'
-                            }}>TOP</span>}
-                            {cat.category}
-                          </span>
-                          <span style={{
-                            fontFamily: 'Georgia, serif', fontSize: '1.1rem',
-                            color: '#1C1814', fontWeight: '400'
-                          }}>
-                            {fmtUSD(cat.amount)}
-                          </span>
-                        </div>
-                        <div style={{
-                          height: '6px', background: '#E8E5DF',
-                          borderRadius: '100px', overflow: 'hidden'
-                        }}>
+                      <div key={i} style={{ marginBottom: '0.75rem' }}>
+                        {/* Category row — clickable */}
+                        <div
+                          onClick={() => setExpandedCategory(isExpanded ? null : i)}
+                          style={{
+                            padding: '1.25rem',
+                            background: isTop ? '#FDF3DC' : '#FAFAF9',
+                            border: `1px solid ${isExpanded ? '#1C1814' : isTop ? '#F3D98A' : '#E8E5DF'}`,
+                            borderRadius: isExpanded ? '16px 16px 0 0' : '16px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                        >
                           <div style={{
-                            height: '100%', borderRadius: '100px',
-                            width: barWidth + '%',
-                            background: isTop ? '#E8A825' : '#5FAD65'
-                          }}></div>
+                            display: 'flex', justifyContent: 'space-between',
+                            alignItems: 'center', marginBottom: '0.5rem'
+                          }}>
+                            <span style={{ fontSize: '0.9rem', fontWeight: '600' }}>
+                              {isTop && (
+                                <span style={{
+                                  background: '#E8A825', color: 'white',
+                                  borderRadius: '4px', padding: '0.1rem 0.4rem',
+                                  fontSize: '0.65rem', fontWeight: '700',
+                                  marginRight: '0.5rem', verticalAlign: 'middle'
+                                }}>TOP</span>
+                              )}
+                              {cat.category}
+                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                              <span style={{
+                                fontFamily: 'Georgia, serif', fontSize: '1.1rem', color: '#1C1814'
+                              }}>
+                                {fmtUSD(cat.amount)}
+                              </span>
+                              <span style={{
+                                fontSize: '0.75rem', color: '#8A8278',
+                                transition: 'transform 0.2s',
+                                transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                                display: 'inline-block'
+                              }}>▼</span>
+                            </div>
+                          </div>
+                          <div style={{
+                            height: '6px', background: '#E8E5DF',
+                            borderRadius: '100px', overflow: 'hidden'
+                          }}>
+                            <div style={{
+                              height: '100%', borderRadius: '100px',
+                              width: barWidth + '%',
+                              background: isTop ? '#E8A825' : '#5FAD65'
+                            }}></div>
+                          </div>
+                          {!isExpanded && (
+                            <div style={{
+                              fontSize: '0.75rem', color: '#8A8278',
+                              marginTop: '0.5rem'
+                            }}>
+                              Tap to see what's in here
+                            </div>
+                          )}
                         </div>
+
+                        {/* Expanded transactions */}
+                        {isExpanded && cat.transactions && (
+                          <div style={{
+                            border: '1px solid #1C1814',
+                            borderTop: 'none',
+                            borderRadius: '0 0 16px 16px',
+                            overflow: 'hidden',
+                            background: 'white'
+                          }}>
+                            {cat.transactions.map((txn, j) => (
+                              <div key={j} style={{
+                                display: 'flex', justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '0.875rem 1.25rem',
+                                borderBottom: j < cat.transactions.length - 1
+                                  ? '1px solid #E8E5DF' : 'none',
+                                transition: 'background 0.15s'
+                              }}>
+                                <div>
+                                  <div style={{
+                                    fontSize: '0.875rem', fontWeight: '600',
+                                    color: '#1C1814', marginBottom: '0.15rem'
+                                  }}>
+                                    {txn.name}
+                                  </div>
+                                  <div style={{ fontSize: '0.75rem', color: '#8A8278' }}>
+                                    {new Date(txn.date).toLocaleDateString('en-US', {
+                                      month: 'short', day: 'numeric'
+                                    })}
+                                  </div>
+                                </div>
+                                <span style={{
+                                  fontFamily: 'Georgia, serif',
+                                  fontSize: '0.95rem', color: '#1C1814', fontWeight: '400'
+                                }}>
+                                  {fmtUSDCents(txn.amount)}
+                                </span>
+                              </div>
+                            ))}
+                            {/* Question prompt instead of advice */}
+                            <div style={{
+                              padding: '1rem 1.25rem',
+                              background: '#F5F4F0',
+                              borderTop: '1px solid #E8E5DF'
+                            }}>
+                              <p style={{
+                                fontSize: '0.82rem', color: '#4A453E',
+                                lineHeight: '1.6', margin: 0,
+                                fontStyle: 'italic'
+                              }}>
+                                💭 Does anything here surprise you?
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
                 </div>
 
-                {/* Summary */}
+                {/* Total */}
                 <div style={{
                   background: '#F0F7F1', border: '1px solid #D6EDD8',
                   borderRadius: '12px', padding: '1rem',
